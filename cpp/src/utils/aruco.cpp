@@ -11,6 +11,8 @@ void generateArucoTag(std::string filePath) {
   imwrite(filePath, markerImage);
 }
 
+void generateCharuoBoard(std::string filePath) {}
+
 int main(int argc, char *argv[]) {
   generateArucoTag("/home/jyue86/distributed_slam/aruco_tags/aruco_tag4.jpg");
   return 0;
