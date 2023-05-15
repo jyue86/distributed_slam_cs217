@@ -1,7 +1,9 @@
+#include "frontend/arucoFrontEnd.hpp"
 #include "frontend/featureMatcher.hpp"
 #include "utils/realsense.hpp"
 #include <iostream>
 #include <librealsense2/rs.hpp>
+#include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
 
 using namespace cv;
@@ -12,10 +14,12 @@ int main() {
   config cfg;
   pipeline pipe;
   configureCamera(cfg, pipe);
+  ArucoFrontEnd arucoFrontEnd;
 
   char quitKey;
   namedWindow("Image");
-  namedWindow("Orb");
+  // namedWindow("Orb");
+  namedWindow("Charuco");
 
   std::vector<Mat> images;
 
@@ -24,18 +28,19 @@ int main() {
     depth_frame depthFrame = frames.get_depth_frame();
     frame imageFrame = frames.get_color_frame();
 
-    Mat image(Size(640, 480), CV_8UC3, (void *)imageFrame.get_data(),
-              Mat::AUTO_STEP);
-    imshow("Image", image);
-    images.push_back(image);
+    Mat img(Size(640, 480), CV_8UC3, (void *)imageFrame.get_data(),
+            Mat::AUTO_STEP);
+    imshow("Image", img);
+    images.push_back(img);
 
-    if (images.size() > 1) {
-      int lastIdx = images.size() - 1;
-      imshow("Orb", featureMatcher.orbFeatureMatch(images[lastIdx - 1],
-                                                   images[lastIdx]));
-    }
+    // if (images.size() > 1) {
+    //   int lastIdx = images.size() - 1;
+    //   imshow("Orb", featureMatcher.orbFeatureMatch(images[lastIdx - 1],
+    //                                                images[lastIdx]));
+    // }
+    arucoFrontEnd.detectCharucoBoardWithoutCalibration(img);
 
-    quitKey = waitKey(30);
+    quitKey = waitKey(10);
     if (quitKey == 27)
       break;
   }

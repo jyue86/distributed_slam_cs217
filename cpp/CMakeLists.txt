@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(realsense2 REQUIRED)
-find_package(OpenCV REQUIRED)
+find_package(OpenCV EXACT 4.7.0 REQUIRED)
 
 include_directories(${OpenCV_INCLUDE_DIRS})
 set(THIRD_PARTY_LIBS ${realsense2_LIBRARY} ${OpenCV_LIBRARIES})
@@ -18,8 +18,17 @@ add_executable(
   src/utils/realsense.hpp
   src/utils/realsense.cpp
   src/frontend/featureMatcher.hpp
-  src/frontend/featureMatcher.cpp)
+  src/frontend/featureMatcher.cpp
+  src/frontend/arucoFrontEnd.hpp
+  src/frontend/arucoFrontEnd.cpp)
 target_link_libraries(main ${THIRD_PARTY_LIBS})
 
-add_executable(aruco src/utils/aruco.cpp src/utils/aruco.hpp)
+add_executable(aruco src/utils/generateAruco.cpp src/utils/generateAruco.hpp)
 target_link_libraries(aruco ${OpenCV_LIBRARIES})
+
+add_executable(
+  getCalibData
+  src/utils/calibrateWithCharuco.cpp src/frontend/arucoFrontEnd.hpp
+  src/frontend/arucoFrontEnd.cpp src/utils/realsense.hpp
+  src/utils/realsense.cpp)
+target_link_libraries(getCalibData ${THIRD_PARTY_LIBS})
