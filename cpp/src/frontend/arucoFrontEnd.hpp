@@ -1,4 +1,6 @@
 #include <opencv2/core/cvstd_wrapper.hpp>
+#include <opencv2/objdetect/aruco_board.hpp>
+#include <opencv2/objdetect/aruco_dictionary.hpp>
 #include <opencv2/objdetect/charuco_detector.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv4/opencv2/aruco/charuco.hpp>
@@ -9,36 +11,33 @@ using namespace cv;
 
 class ArucoFrontEnd {
 public:
-  ArucoFrontEnd();
-  void detectCharucoBoardWithCalibration(Mat img);
-  void detectCharucoBoardWithoutCalibration(Mat img);
-  void detectCharucoBoardForCalibration(Mat image);
+  // ~ArucoFrontEnd();
   void calibrate();
+  void detectCharucoBoardWithCalibration(Mat img);
+  void detectCharucoBoardWithoutCalibration(Mat img,
+                                            bool maybeCalibrate = false);
   Mat getCameraMatrix() const;
   Mat getDistCoeffs() const;
 
 private:
   // Calibration
-  Size imgSize;
-  std::vector<std::vector<Point2f>> allCharucoCorners;
-  std::vector<std::vector<int>> allCharucoIds;
-  std::vector<std::vector<Point2f>> allImagePoints;
-  std::vector<std::vector<Point3f>> allObjectPoints;
+  Size imgSize{640, 480};
   Mat cameraMatrix, distCoeffs;
+  std::vector<std::vector<cv::Point2f>> allCornersConcatenated;
+  std::vector<int> allIdsConcatenated;
+  std::vector<int> allMarkerCountPerFrame;
 
-  // Board intialization
-  int markersX = 8;
-  int markersY = 6;
-  float squareLength = 1;
-  float markerLength = 0.8;
+  int markersX = 4;
+  int markersY = 3;
+  float squareLength = 0.04;
+  float markerLength = 0.01;
   aruco::Dictionary dictionary =
-      aruco::getPredefinedDictionary(aruco::DICT_6X6_250);
-  Ptr<aruco::CharucoBoard> board = new cv::aruco::CharucoBoard(
+      aruco::getPredefinedDictionary(aruco::DICT_6X6_50);
+  Ptr<aruco::GridBoard> board = new aruco::GridBoard(
       Size(markersX, markersY), squareLength, markerLength, dictionary);
 
   // Detectors
-  aruco::ArucoDetector arucoDetector;
-  aruco::CharucoDetector charucoDetector{*board};
+  aruco::ArucoDetector arucoDetector{dictionary, aruco::DetectorParameters()};
 
   // Poses
   std::vector<Mat> rvecs, tvecs;

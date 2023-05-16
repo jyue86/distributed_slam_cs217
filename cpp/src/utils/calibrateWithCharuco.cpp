@@ -15,11 +15,9 @@ int main() {
   pipeline pipe;
   configureCamera(cfg, pipe);
 
-  char quitKey;
-  namedWindow("Image", WINDOW_AUTOSIZE);
-
-  int count = 0;
-  int calibImgCount = 0;
+  char inputKey = 0;
+  bool maybeCapture = false;
+  namedWindow("Charuco", WINDOW_AUTOSIZE);
 
   while (true) {
     frameset frames = pipe.wait_for_frames();
@@ -28,20 +26,19 @@ int main() {
 
     Mat image(Size(640, 480), CV_8UC3, (void *)imageFrame.get_data(),
               Mat::AUTO_STEP);
-    imshow("Image", image);
 
-    if (count % 50 == 0 && count != 0) {
-      // imwrite("calibration_images/img" + std::to_string(calibImgCount) +
-      // ".jpg",
-      //         image);
-      std::cout << "going to calibrate at this view..." << std::endl;
-      arucoFrontend.detectCharucoBoardForCalibration(image);
+    arucoFrontend.detectCharucoBoardWithoutCalibration(image, maybeCapture);
+    if (maybeCapture) {
+      std::cout << "calibrated at this view..." << std::endl;
+      maybeCapture = false;
     }
 
-    quitKey = waitKey(10);
-    if (quitKey == 27)
+    inputKey = waitKey(10);
+    std::cout << inputKey << std::endl;
+    if (inputKey == 'c')
+      maybeCapture = true;
+    else if (inputKey == 27)
       break;
-    count++;
   }
 
   std::cout << "Calibrating now" << std::endl;

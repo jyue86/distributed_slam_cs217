@@ -4,3 +4,5 @@ compile_commands.json
 aruco_tags/
 **/__pycache__
 **/venv/
+**/*.jpg
+**/*.tiff
