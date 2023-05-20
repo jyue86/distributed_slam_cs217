@@ -17,9 +17,8 @@ int main() {
   ArucoFrontEnd arucoFrontEnd;
 
   char quitKey;
-  namedWindow("Image");
+  namedWindow("Aruco");
   // namedWindow("Orb");
-  namedWindow("Charuco");
 
   std::vector<Mat> images;
 
@@ -30,7 +29,6 @@ int main() {
 
     Mat img(Size(640, 480), CV_8UC3, (void *)imageFrame.get_data(),
             Mat::AUTO_STEP);
-    imshow("Image", img);
     images.push_back(img);
 
     // if (images.size() > 1) {
@@ -38,7 +36,9 @@ int main() {
     //   imshow("Orb", featureMatcher.orbFeatureMatch(images[lastIdx - 1],
     //                                                images[lastIdx]));
     // }
-    arucoFrontEnd.detectCharucoBoardWithoutCalibration(img);
+    // arucoFrontEnd.detectArucoBoardWithCalibration(img);
+    // arucoFrontEnd.detectCharucoBoardWithoutCalibration(img);
+    arucoFrontEnd.detectCharucoBoardWithCalibration(img);
 
     quitKey = waitKey(10);
     if (quitKey == 27)
