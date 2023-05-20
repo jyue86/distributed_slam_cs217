@@ -6,9 +6,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(realsense2 REQUIRED)
 find_package(OpenCV EXACT 4.7.0 REQUIRED)
+find_package(GTSAM REQUIRED)
+find_package(Boost REQUIRED)
 
-include_directories(${OpenCV_INCLUDE_DIRS})
-set(THIRD_PARTY_LIBS ${realsense2_LIBRARY} ${OpenCV_LIBRARIES})
+include_directories(${OpenCV_INCLUDE_DIRS} ${GTSAM_INCLUDE_DIRS}
+                    ${Boost_INCLUDE_DIRS})
+set(THIRD_PARTY_LIBS ${realsense2_LIBRARY} ${OpenCV_LIBRARIES}
+                     ${Boost_LIBRARIES} ${GTSAM_LIBRARIES})
 
 add_executable(
   main
