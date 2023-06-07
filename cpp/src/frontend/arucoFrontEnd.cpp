@@ -1,23 +1,24 @@
 #include "../frontend/arucoFrontEnd.hpp"
-#include <exception>
-#include <opencv2/aruco.hpp>
-#include <opencv2/aruco/aruco_calib.hpp>
-#include <opencv2/aruco/charuco.hpp>
-#include <opencv2/calib3d.hpp>
-#include <opencv2/core/mat.hpp>
-#include <opencv2/highgui.hpp>
-#include <opencv2/objdetect/aruco_detector.hpp>
-#include <opencv2/objdetect/charuco_detector.hpp>
-#include <ostream>
+#include <cstddef>
+#include <opencv2/core/matx.hpp>
+#include <opencv2/core/types.hpp>
+#include <string>
 
-void ArucoFrontEnd::calibrateAruco() {
-  int calibrationFlags = 0;
-  std::cout << allCornersConcatenated.size() << " " << allIdsConcatenated.size()
-            << " " << allMarkerCountPerFrame.size() << std::endl;
-  double error = aruco::calibrateCameraAruco(
-      allCornersConcatenated, allIdsConcatenated, allMarkerCountPerFrame, board,
-      imgSize, cameraMatrix, distCoeffs, rvecs, tvecs, calibrationFlags);
-  std::cout << "Error: " << error << std::endl;
+ArucoFrontEnd::ArucoFrontEnd() {
+  objectPoints = Mat(4, 1, CV_32FC3);
+  objectPoints.ptr<cv::Vec3f>(0)[0] =
+      cv::Vec3f(-charucoMarkerLength / 2.f, charucoMarkerLength / 2.f, 0);
+  objectPoints.ptr<cv::Vec3f>(0)[1] =
+      cv::Vec3f(charucoMarkerLength / 2.f, charucoMarkerLength / 2.f, 0);
+  objectPoints.ptr<cv::Vec3f>(0)[2] =
+      cv::Vec3f(charucoMarkerLength / 2.f, -charucoMarkerLength / 2.f, 0);
+  objectPoints.ptr<cv::Vec3f>(0)[3] =
+      cv::Vec3f(-charucoMarkerLength / 2.f, -charucoMarkerLength / 2.f, 0);
+
+  for (int i = 0; i < 7; i++) {
+    std::pair<int, int> range(i * 17, i * 17 + 16);
+    boardIdRanges[range] = i;
+  }
 }
 
 void ArucoFrontEnd::calibrateCharuco() {
@@ -30,16 +31,7 @@ void ArucoFrontEnd::calibrateCharuco() {
   std::cout << "Error: " << repError << std::endl;
 }
 
-float ArucoFrontEnd::getReprojectionError() {
-  // float error;
-  // for (int i = 0; i < 5; i++) {
-  //   projectPoints(all, InputArray rvec, InputArray tvec, InputArray
-  //   cameraMatrix, InputArray distCoeffs, OutputArray imagePoints)
-  // }
-  return 0.0;
-}
-
-void ArucoFrontEnd::detectArucoBoardWithCalibration(Mat img) {
+Vec3d ArucoFrontEnd::detectAruco(Mat img) {
   Mat imgCopy;
   img.copyTo(imgCopy);
 
@@ -48,63 +40,116 @@ void ArucoFrontEnd::detectArucoBoardWithCalibration(Mat img) {
   arucoDetector.detectMarkers(img, markerCorners, markerIds);
 
   if (markerIds.size() > 0) {
-    aruco::drawDetectedMarkers(imgCopy, markerCorners);
-    Vec3d rvec, tvec;
+    int minMarkerId = *std::min_element(markerIds.begin(), markerIds.end());
+    int boardId = findBoardId(minMarkerId);
 
-    Mat objectPoints, imgPoints;
-    board->matchImagePoints(markerCorners, markerIds, objectPoints, imgPoints);
-    try {
-      solvePnP(objectPoints, imgPoints, cameraMatrix, distCoeffs, rvec, tvec);
-    } catch (const std::exception &e) {
-      std::cout << "solvePnP didn't work ..." << std::endl;
-      // Sometimes, the imgPoints and objectPoints are of size 0x0
-      // std::cout << objectPoints.size() << " " << imgPoints.size() <<
-      // std::endl;
+    if (boardId == 0) {
+      detectCharucoBoardWithCalibration(imgCopy, markerIds, markerCorners);
+      return Vec3d::zeros();
+    } else {
+      return detectArucoPnp(imgCopy, markerIds, markerCorners);
     }
-    // std::cout << "Rotation: " << rvec << std::endl;
-    // std::cout << "Translation: " << tvec << std::endl;
-
-    int nMarkersDetected = (int)objectPoints.total() / 4;
-    std::cout << nMarkersDetected << std::endl;
-    if (nMarkersDetected > 0)
-      drawFrameAxes(imgCopy, cameraMatrix, distCoeffs, rvec, tvec, 0.1);
+  } else {
+    imshow("Aruco", imgCopy);
+    return Vec3d::zeros();
   }
-  imshow("Aruco", imgCopy);
 }
 
-void ArucoFrontEnd::detectArucoBoardWithoutCalibration(Mat img) {
-  Mat imgCopy;
-  img.copyTo(imgCopy);
+Vec3d ArucoFrontEnd::detectArucoPnp(
+    Mat img, const std::vector<int> &markerIds,
+    const std::vector<std::vector<Point2f>> &markerCorners) {
+  cv::aruco::drawDetectedMarkers(img, markerCorners, markerIds);
+  int nMarkers = markerCorners.size();
+  std::vector<cv::Vec3d> arucoRvecs(nMarkers), arucoTvecs(nMarkers);
 
-  std::vector<int> markerIds;
-  std::vector<std::vector<Point2f>> markerCorners;
-
-  arucoDetector.detectMarkers(img, markerCorners, markerIds);
-  if (markerIds.size() > 0) {
-    aruco::drawDetectedMarkers(imgCopy, markerCorners);
+  // Calculate pose for each marker
+  for (int i = 0; i < nMarkers; i++) {
+    solvePnP(objectPoints, markerCorners.at(i), cameraMatrix, distCoeffs,
+             arucoRvecs.at(i), arucoTvecs.at(i));
   }
-  imshow("Aruco", imgCopy);
+
+  // Draw axis for each marker
+  for (unsigned int i = 0; i < markerIds.size(); i++) {
+    cv::drawFrameAxes(img, cameraMatrix, distCoeffs, arucoRvecs[i],
+                      arucoTvecs[i], 0.05);
+  }
+
+  // Only use the first aruco marker
+  cv::Vec3d rvec, tvec;
+  rvec = arucoRvecs.at(0);
+  tvec = arucoTvecs.at(0);
+  Vec3d oppositeDirRvec = rvec * -1;
+  Vec3d oppositeDirTvec = tvec * -1;
+  Mat R = Mat::zeros(Size(3, 3), CV_64FC1);
+  Rodrigues(oppositeDirRvec, R);
+
+  Mat t = R * oppositeDirTvec;
+  Vec3f eulerAngles = convertRotationToEuler(R);
+  // x is red, y is green, z is blue
+
+  std::string rString = std::to_string(eulerAngles[0]) + " " +
+                        std::to_string(eulerAngles[1]) + " " +
+                        std::to_string(eulerAngles[2]);
+  std::string tString = std::to_string(t.at<double>(0, 0)) + " " +
+                        std::to_string(t.at<double>(0, 1)) + " " +
+                        std::to_string(t.at<double>(0, 2));
+  putText(img, rString, Point(40, 20), FONT_HERSHEY_PLAIN, 1.5,
+          Scalar(0, 255, 0));
+  putText(img, tString, Point(40, 40), FONT_HERSHEY_PLAIN, 1.5,
+          Scalar(0, 255, 0));
+
+  imshow("Aruco", img);
+  return Vec3d(t.reshape(3).at<Vec3d>());
 }
 
-void ArucoFrontEnd::getArucoBoardDataForCalibration(Mat img) {
-  Mat imgCopy;
-  img.copyTo(imgCopy);
-  std::vector<int> markerIds;
-  std::vector<std::vector<Point2f>> markerCorners;
-  std::vector<std::vector<Point2f>> rejectedMarkerCorners;
+void ArucoFrontEnd::detectCharucoBoardWithCalibration(
+    Mat img, const std::vector<int> &markerIds,
+    const std::vector<std::vector<cv::Point2f>> &markerCorners) {
+  cv::aruco::drawDetectedMarkers(img, markerCorners, markerIds);
+  std::vector<cv::Point2f> charucoCorners;
+  std::vector<int> charucoIds;
+  cv::aruco::interpolateCornersCharuco(markerCorners, markerIds, img,
+                                       charucoBoard, charucoCorners, charucoIds,
+                                       cameraMatrix, distCoeffs);
+  // if at least one charuco corner detected
+  if (charucoIds.size() > 0) {
+    cv::Scalar color = cv::Scalar(0, 255, 0);
+    cv::aruco::drawDetectedCornersCharuco(img, charucoCorners, charucoIds,
+                                          color);
+    cv::Vec3d rvec, tvec;
+    bool valid = cv::aruco::estimatePoseCharucoBoard(charucoCorners, charucoIds,
+                                                     charucoBoard, cameraMatrix,
+                                                     distCoeffs, rvec, tvec);
 
-  std::vector<Point2f> objPoints;
-  std::vector<int> imgPoints;
+    Vec3d oppositeDirRvec = rvec * -1;
+    Vec3d oppositeDirTvec = tvec * -1;
+    Mat R = Mat::zeros(Size(3, 3), CV_64FC1);
+    Rodrigues(oppositeDirRvec, R);
 
-  arucoDetector.detectMarkers(img, markerCorners, markerIds,
-                              rejectedMarkerCorners);
-  if (markerIds.size() > 0) {
-    allIdsConcatenated.insert(allIdsConcatenated.end(), markerIds.begin(),
-                              markerIds.end());
-    allCornersConcatenated.insert(allCornersConcatenated.end(),
-                                  markerCorners.begin(), markerCorners.end());
-    allMarkerCountPerFrame.push_back(markerIds.size());
+    Mat t = R * oppositeDirTvec;
+    Vec3f eulerAngles = convertRotationToEuler(R);
+    // x is red, y is green, z is blue
+
+    std::string rString = std::to_string(eulerAngles[0]) + " " +
+                          std::to_string(eulerAngles[1]) + " " +
+                          std::to_string(eulerAngles[2]);
+    std::string tString = std::to_string(t.at<double>(0, 0)) + " " +
+                          std::to_string(t.at<double>(0, 1)) + " " +
+                          std::to_string(t.at<double>(0, 2));
+    putText(img, rString, Point(40, 20), FONT_HERSHEY_PLAIN, 1.5,
+            Scalar(0, 255, 0));
+    putText(img, tString, Point(40, 40), FONT_HERSHEY_PLAIN, 1.5,
+            Scalar(0, 255, 0));
+
+    // if charuco pose is valid
+    if (valid) {
+      cv::drawFrameAxes(img, cameraMatrix, distCoeffs, rvec, tvec, 0.1f);
+      Vec3d newt = Vec3d(t.reshape(3).at<Vec3d>());
+    }
+    // return Vec3d::zeros();
   }
+  imshow("Aruco", img);
+  // return Vec3d::zeros();
 }
 
 void ArucoFrontEnd::detectCharucoBoardWithoutCalibration(Mat img) {
@@ -148,40 +193,49 @@ void ArucoFrontEnd::getCharucoBoardDataForCalibration(Mat img) {
   }
 }
 
-void ArucoFrontEnd::detectCharucoBoardWithCalibration(Mat img) {
-  Mat imgCopy;
-  img.copyTo(imgCopy);
-
-  std::vector<int> markerIds;
-  std::vector<std::vector<cv::Point2f>> markerCorners;
-  arucoDetector.detectMarkers(img, markerCorners, markerIds);
-
-  //  if at least one marker detected
-  if (markerIds.size() > 0) {
-    cv::aruco::drawDetectedMarkers(imgCopy, markerCorners, markerIds);
-    std::vector<cv::Point2f> charucoCorners;
-    std::vector<int> charucoIds;
-    cv::aruco::interpolateCornersCharuco(markerCorners, markerIds, img,
-                                         charucoBoard, charucoCorners,
-                                         charucoIds, cameraMatrix, distCoeffs);
-    // if at least one charuco corner detected
-    if (charucoIds.size() > 0) {
-      cv::Scalar color = cv::Scalar(0, 255, 0);
-      cv::aruco::drawDetectedCornersCharuco(imgCopy, charucoCorners, charucoIds,
-                                            color);
-      cv::Vec3d rvec, tvec;
-      bool valid = cv::aruco::estimatePoseCharucoBoard(
-          charucoCorners, charucoIds, charucoBoard, cameraMatrix, distCoeffs,
-          rvec, tvec);
-
-      // if charuco pose is valid
-      if (valid)
-        cv::drawFrameAxes(imgCopy, cameraMatrix, distCoeffs, rvec, tvec, 0.1f);
-    }
-  }
-  imshow("Aruco", imgCopy);
-}
-
 Mat ArucoFrontEnd::getCameraMatrix() const { return cameraMatrix; }
 
 Mat ArucoFrontEnd::getDistCoeffs() const { return distCoeffs; }
+
+int ArucoFrontEnd::findBoardId(int minMarkerId) {
+  for (auto i : boardIdRanges) {
+    std::pair<int, int> range = i.first;
+    int id = i.second;
+    if (minMarkerId >= range.first && minMarkerId <= range.second) {
+      return boardIdRanges[range];
+    }
+  }
+  return -1;
+}
+
+int ArucoFrontEnd::findArucoGroupId(int minMarkerId) {
+  return (minMarkerId / 4) * 4;
+}
+
+bool ArucoFrontEnd::isRotationMatrix(Mat &R) {
+  Mat rotationMatT = R.t();
+  Mat maybeIdentity = rotationMatT * R;
+  Mat identityMat = Mat::eye(3, 3, maybeIdentity.type());
+
+  return norm(maybeIdentity - identityMat) < 1e-6;
+}
+
+Vec3f ArucoFrontEnd::convertRotationToEuler(Mat &R) {
+  assert(isRotationMatrix(R));
+  float sy = std::sqrt(R.at<double>(0, 0) * R.at<double>(0, 0) +
+                       R.at<double>(1, 0) + R.at<double>(1, 0));
+  bool isSingular = sy < 1e-6;
+
+  float x, y, z;
+  if (!isSingular) {
+    x = atan2(R.at<double>(2, 1), R.at<double>(2, 2));
+    y = atan2(-R.at<double>(2, 0), sy);
+    z = atan2(R.at<double>(1, 0), R.at<double>(0, 0));
+  } else {
+    x = atan2(-R.at<double>(1, 2), R.at<double>(1, 1));
+    y = atan2(-R.at<double>(2, 0), sy);
+    z = 0;
+  }
+
+  return Vec3f(x, y, z);
+}

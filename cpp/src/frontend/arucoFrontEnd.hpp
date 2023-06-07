@@ -1,30 +1,58 @@
+#ifndef ARUCOFRONTEND
+#define ARUCOFRONTEND
+
+// https://stackoverflow.com/questions/70956515/aruco-markers-pose-estimatimation-exactly-for-which-point-the-traslation-and-r
+// https://www.youtube.com/watch?v=cIVZRuVdv1o
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <exception>
+#include <map>
+#include <opencv2/aruco.hpp>
+#include <opencv2/aruco/aruco_calib.hpp>
+#include <opencv2/aruco/charuco.hpp>
+#include <opencv2/calib3d.hpp>
 #include <opencv2/core/cvstd_wrapper.hpp>
+#include <opencv2/core/hal/interface.h>
+#include <opencv2/core/mat.hpp>
+#include <opencv2/core/matx.hpp>
+#include <opencv2/core/types.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 #include <opencv2/objdetect/aruco_board.hpp>
+#include <opencv2/objdetect/aruco_detector.hpp>
 #include <opencv2/objdetect/aruco_dictionary.hpp>
 #include <opencv2/objdetect/charuco_detector.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv4/opencv2/aruco/charuco.hpp>
 #include <opencv4/opencv2/objdetect/aruco_detector.hpp>
+#include <ostream>
+#include <string>
+#include <utility>
 #include <vector>
 
 using namespace cv;
 
 class ArucoFrontEnd {
 public:
-  void calibrateAruco();
+  ArucoFrontEnd();
+
+  // void calibrateAruco();
   void calibrateCharuco();
-  float getReprojectionError();
-
-  void detectArucoBoardWithCalibration(Mat img);
-  void detectArucoBoardWithoutCalibration(Mat img);
-  void getArucoBoardDataForCalibration(Mat img);
-
-  void detectCharucoBoardWithoutCalibration(Mat img);
-  void detectCharucoBoardWithCalibration(Mat img);
-  void getCharucoBoardDataForCalibration(Mat img);
 
   Mat getCameraMatrix() const;
   Mat getDistCoeffs() const;
+
+  // Detection functions
+  Vec3d detectAruco(Mat img);
+
+  void detectCharucoBoardWithoutCalibration(Mat img);
+  Vec3d detectArucoPnp(Mat img, const std::vector<int> &markerIds,
+                       const std::vector<std::vector<Point2f>> &markerCorners);
+  void detectCharucoBoardWithCalibration(
+      Mat img, const std::vector<int> &markerIds,
+      const std::vector<std::vector<Point2f>> &markerCorners);
+  void getCharucoBoardDataForCalibration(Mat img);
 
 private:
   // Calibration
@@ -39,24 +67,17 @@ private:
   std::vector<int> allIdsConcatenated;
   std::vector<int> allMarkerCountPerFrame;
 
-  // Aruco Board
-  int markersX = 4;
-  int markersY = 3;
-  float squareLength = 0.04;
-  float markerLength = 0.01;
-  aruco::Dictionary dictionary =
-      aruco::getPredefinedDictionary(aruco::DICT_6X6_50);
-  Ptr<aruco::GridBoard> board = new aruco::GridBoard(
-      Size(markersX, markersY), squareLength, markerLength, dictionary);
-
   // Charuco Board
+  Mat objectPoints;
+  std::map<std::pair<int, int>, int> boardIdRanges;
+
   int charucoMarkersX = 5;
   int charucoMarkersY = 7;
   float charucoSquareLength = 0.04;
   float charucoMarkerLength = 0.02;
   aruco::Dictionary charucoDictionary =
-      aruco::getPredefinedDictionary(aruco::DICT_6X6_100);
-  Ptr<aruco::CharucoBoard> charucoBoard = new cv::aruco::CharucoBoard(
+      aruco::getPredefinedDictionary(aruco::DICT_6X6_250);
+  Ptr<aruco::CharucoBoard> charucoBoard = new aruco::CharucoBoard(
       Size(charucoMarkersX, charucoMarkersY), charucoSquareLength,
       charucoMarkerLength, charucoDictionary);
 
@@ -64,8 +85,16 @@ private:
   std::vector<std::vector<int>> allCharucoIds;
 
   // Detectors
-  aruco::ArucoDetector arucoDetector{dictionary, aruco::DetectorParameters()};
-
+  aruco::ArucoDetector arucoDetector{charucoDictionary,
+                                     aruco::DetectorParameters()};
   // Poses
   std::vector<Mat> rvecs, tvecs;
+
+  // todo: make this a const function???
+  int findBoardId(int minMarkerId);
+  int findArucoGroupId(int minMarkerId);
+  bool isRotationMatrix(Mat &R);
+  Vec3f convertRotationToEuler(Mat &R);
 };
+
+#endif
