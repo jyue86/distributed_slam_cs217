@@ -1,4 +1,4 @@
 cd build
 cmake ..
-make
+make -j4
 mv compile_commands.json ..

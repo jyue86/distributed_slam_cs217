@@ -1,4 +1,5 @@
 #include "../frontend/arucoFrontEnd.hpp"
+#include <algorithm>
 #include <cstddef>
 #include <opencv2/core/matx.hpp>
 #include <opencv2/core/types.hpp>
@@ -15,10 +16,14 @@ ArucoFrontEnd::ArucoFrontEnd() {
   objectPoints.ptr<cv::Vec3f>(0)[3] =
       cv::Vec3f(-charucoMarkerLength / 2.f, -charucoMarkerLength / 2.f, 0);
 
-  for (int i = 0; i < 7; i++) {
-    std::pair<int, int> range(i * 17, i * 17 + 16);
-    boardIdRanges[range] = i;
+  std::set<int> charucoIds;
+  for (int i = 0; i <= 16; i++) {
+    charucoIds.insert(i);
   }
+  arucoPosMap[charucoIds] = Vec3d(0, 0, 0);
+  arucoPosMap[{19, 20, 25, 26}] = Vec3d(0.5, 0, 0);
+  arucoPosMap[{21, 22, 27, 28}] = Vec3d(1.0, 0, 0);
+  arucoPosMap[{43, 44, 49, 50}] = Vec3d(0.5, 0, 0);
 }
 
 void ArucoFrontEnd::calibrateCharuco() {
@@ -31,7 +36,7 @@ void ArucoFrontEnd::calibrateCharuco() {
   std::cout << "Error: " << repError << std::endl;
 }
 
-Vec3d ArucoFrontEnd::detectAruco(Mat img) {
+void ArucoFrontEnd::detectAruco(Mat img) {
   Mat imgCopy;
   img.copyTo(imgCopy);
 
@@ -41,22 +46,21 @@ Vec3d ArucoFrontEnd::detectAruco(Mat img) {
 
   if (markerIds.size() > 0) {
     int minMarkerId = *std::min_element(markerIds.begin(), markerIds.end());
-    int boardId = findBoardId(minMarkerId);
+    bool isCBoard = isCharucoBoard(minMarkerId);
 
-    if (boardId == 0) {
+    if (isCBoard) {
       detectCharucoBoardWithCalibration(imgCopy, markerIds, markerCorners);
-      return Vec3d::zeros();
     } else {
-      return detectArucoPnp(imgCopy, markerIds, markerCorners);
+      detectArucoPnp(getArucoMarkersWorldPose(minMarkerId), imgCopy, markerIds,
+                     markerCorners);
     }
   } else {
     imshow("Aruco", imgCopy);
-    return Vec3d::zeros();
   }
 }
 
-Vec3d ArucoFrontEnd::detectArucoPnp(
-    Mat img, const std::vector<int> &markerIds,
+void ArucoFrontEnd::detectArucoPnp(
+    const Vec3d &arucoPos, Mat img, const std::vector<int> &markerIds,
     const std::vector<std::vector<Point2f>> &markerCorners) {
   cv::aruco::drawDetectedMarkers(img, markerCorners, markerIds);
   int nMarkers = markerCorners.size();
@@ -79,27 +83,27 @@ Vec3d ArucoFrontEnd::detectArucoPnp(
   rvec = arucoRvecs.at(0);
   tvec = arucoTvecs.at(0);
   Vec3d oppositeDirRvec = rvec * -1;
-  Vec3d oppositeDirTvec = tvec * -1;
+  Vec3d oppositeDirTvec = arucoPos + (tvec * -1);
   Mat R = Mat::zeros(Size(3, 3), CV_64FC1);
   Rodrigues(oppositeDirRvec, R);
 
   Mat t = R * oppositeDirTvec;
-  Vec3f eulerAngles = convertRotationToEuler(R);
+  currentWorldPose = Vec3d(t.reshape(3).at<Vec3d>());
+  currentWorldRot = convertRotationToEuler(R);
   // x is red, y is green, z is blue
 
-  std::string rString = std::to_string(eulerAngles[0]) + " " +
-                        std::to_string(eulerAngles[1]) + " " +
-                        std::to_string(eulerAngles[2]);
-  std::string tString = std::to_string(t.at<double>(0, 0)) + " " +
-                        std::to_string(t.at<double>(0, 1)) + " " +
-                        std::to_string(t.at<double>(0, 2));
+  std::string rString = std::to_string(currentWorldRot[0]) + " " +
+                        std::to_string(currentWorldRot[1]) + " " +
+                        std::to_string(currentWorldRot[2]);
+  std::string tString = std::to_string(currentWorldPose[0]) + " " +
+                        std::to_string(currentWorldPose[1]) + " " +
+                        std::to_string(currentWorldPose[2]);
   putText(img, rString, Point(40, 20), FONT_HERSHEY_PLAIN, 1.5,
           Scalar(0, 255, 0));
   putText(img, tString, Point(40, 40), FONT_HERSHEY_PLAIN, 1.5,
           Scalar(0, 255, 0));
 
   imshow("Aruco", img);
-  return Vec3d(t.reshape(3).at<Vec3d>());
 }
 
 void ArucoFrontEnd::detectCharucoBoardWithCalibration(
@@ -123,19 +127,21 @@ void ArucoFrontEnd::detectCharucoBoardWithCalibration(
 
     Vec3d oppositeDirRvec = rvec * -1;
     Vec3d oppositeDirTvec = tvec * -1;
+    oppositeDirTvec[2] *= -1;
     Mat R = Mat::zeros(Size(3, 3), CV_64FC1);
     Rodrigues(oppositeDirRvec, R);
 
     Mat t = R * oppositeDirTvec;
-    Vec3f eulerAngles = convertRotationToEuler(R);
+    currentWorldPose = Vec3d(t.reshape(3).at<Vec3d>());
+    currentWorldRot = convertRotationToEuler(R);
     // x is red, y is green, z is blue
 
-    std::string rString = std::to_string(eulerAngles[0]) + " " +
-                          std::to_string(eulerAngles[1]) + " " +
-                          std::to_string(eulerAngles[2]);
-    std::string tString = std::to_string(t.at<double>(0, 0)) + " " +
-                          std::to_string(t.at<double>(0, 1)) + " " +
-                          std::to_string(t.at<double>(0, 2));
+    std::string rString = std::to_string(currentWorldRot[0]) + " " +
+                          std::to_string(currentWorldRot[1]) + " " +
+                          std::to_string(currentWorldRot[2]);
+    std::string tString = std::to_string(currentWorldPose[0]) + " " +
+                          std::to_string(currentWorldPose[1]) + " " +
+                          std::to_string(currentWorldPose[2]);
     putText(img, rString, Point(40, 20), FONT_HERSHEY_PLAIN, 1.5,
             Scalar(0, 255, 0));
     putText(img, tString, Point(40, 40), FONT_HERSHEY_PLAIN, 1.5,
@@ -144,12 +150,9 @@ void ArucoFrontEnd::detectCharucoBoardWithCalibration(
     // if charuco pose is valid
     if (valid) {
       cv::drawFrameAxes(img, cameraMatrix, distCoeffs, rvec, tvec, 0.1f);
-      Vec3d newt = Vec3d(t.reshape(3).at<Vec3d>());
     }
-    // return Vec3d::zeros();
   }
   imshow("Aruco", img);
-  // return Vec3d::zeros();
 }
 
 void ArucoFrontEnd::detectCharucoBoardWithoutCalibration(Mat img) {
@@ -197,15 +200,12 @@ Mat ArucoFrontEnd::getCameraMatrix() const { return cameraMatrix; }
 
 Mat ArucoFrontEnd::getDistCoeffs() const { return distCoeffs; }
 
-int ArucoFrontEnd::findBoardId(int minMarkerId) {
-  for (auto i : boardIdRanges) {
-    std::pair<int, int> range = i.first;
-    int id = i.second;
-    if (minMarkerId >= range.first && minMarkerId <= range.second) {
-      return boardIdRanges[range];
-    }
-  }
-  return -1;
+Vec3d ArucoFrontEnd::getWorldRot() const { return currentWorldRot; }
+
+Vec3d ArucoFrontEnd::getWorldPose() const { return currentWorldPose; }
+
+bool ArucoFrontEnd::isCharucoBoard(int minMarkerId) {
+  return minMarkerId >= 0 && minMarkerId <= 16;
 }
 
 int ArucoFrontEnd::findArucoGroupId(int minMarkerId) {
@@ -220,7 +220,7 @@ bool ArucoFrontEnd::isRotationMatrix(Mat &R) {
   return norm(maybeIdentity - identityMat) < 1e-6;
 }
 
-Vec3f ArucoFrontEnd::convertRotationToEuler(Mat &R) {
+Vec3d ArucoFrontEnd::convertRotationToEuler(Mat &R) {
   assert(isRotationMatrix(R));
   float sy = std::sqrt(R.at<double>(0, 0) * R.at<double>(0, 0) +
                        R.at<double>(1, 0) + R.at<double>(1, 0));
@@ -237,5 +237,14 @@ Vec3f ArucoFrontEnd::convertRotationToEuler(Mat &R) {
     z = 0;
   }
 
-  return Vec3f(x, y, z);
+  return Vec3d(x, y, z);
+}
+
+Vec3d ArucoFrontEnd::getArucoMarkersWorldPose(int arucoId) {
+  for (auto item : arucoPosMap) {
+    if (item.first.count(arucoId) == 1) {
+      return item.second;
+    }
+  }
+  return Vec3d::zeros();
 }

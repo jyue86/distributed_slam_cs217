@@ -27,6 +27,7 @@
 #include <opencv4/opencv2/aruco/charuco.hpp>
 #include <opencv4/opencv2/objdetect/aruco_detector.hpp>
 #include <ostream>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -40,19 +41,22 @@ public:
   // void calibrateAruco();
   void calibrateCharuco();
 
-  Mat getCameraMatrix() const;
-  Mat getDistCoeffs() const;
-
   // Detection functions
-  Vec3d detectAruco(Mat img);
+  void detectAruco(Mat img);
 
   void detectCharucoBoardWithoutCalibration(Mat img);
-  Vec3d detectArucoPnp(Mat img, const std::vector<int> &markerIds,
-                       const std::vector<std::vector<Point2f>> &markerCorners);
+  void detectArucoPnp(const Vec3d &arucoPos, Mat img,
+                      const std::vector<int> &markerIds,
+                      const std::vector<std::vector<Point2f>> &markerCorners);
   void detectCharucoBoardWithCalibration(
       Mat img, const std::vector<int> &markerIds,
       const std::vector<std::vector<Point2f>> &markerCorners);
   void getCharucoBoardDataForCalibration(Mat img);
+
+  Mat getCameraMatrix() const;
+  Mat getDistCoeffs() const;
+  Vec3d getWorldPose() const;
+  Vec3d getWorldRot() const;
 
 private:
   // Calibration
@@ -66,10 +70,10 @@ private:
   std::vector<std::vector<cv::Point2f>> allCornersConcatenated;
   std::vector<int> allIdsConcatenated;
   std::vector<int> allMarkerCountPerFrame;
+  std::vector<Mat> rvecs, tvecs;
 
   // Charuco Board
   Mat objectPoints;
-  std::map<std::pair<int, int>, int> boardIdRanges;
 
   int charucoMarkersX = 5;
   int charucoMarkersY = 7;
@@ -81,20 +85,23 @@ private:
       Size(charucoMarkersX, charucoMarkersY), charucoSquareLength,
       charucoMarkerLength, charucoDictionary);
 
-  std::vector<std::vector<cv::Point2f>> allCharucoCorners;
+  std::vector<std::vector<Point2f>> allCharucoCorners;
   std::vector<std::vector<int>> allCharucoIds;
 
   // Detectors
   aruco::ArucoDetector arucoDetector{charucoDictionary,
                                      aruco::DetectorParameters()};
-  // Poses
-  std::vector<Mat> rvecs, tvecs;
+  // Pose data
+  Vec3d currentWorldPose;
+  Vec3d currentWorldRot;
 
   // todo: make this a const function???
-  int findBoardId(int minMarkerId);
+  std::map<std::set<int>, Vec3d> arucoPosMap;
+  bool isCharucoBoard(int minMarkerId);
   int findArucoGroupId(int minMarkerId);
   bool isRotationMatrix(Mat &R);
-  Vec3f convertRotationToEuler(Mat &R);
+  Vec3d convertRotationToEuler(Mat &R);
+  Vec3d getArucoMarkersWorldPose(int arucoId);
 };
 
 #endif
