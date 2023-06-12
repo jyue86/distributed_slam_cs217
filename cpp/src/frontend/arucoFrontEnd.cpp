@@ -1,6 +1,7 @@
 #include "../frontend/arucoFrontEnd.hpp"
 #include <algorithm>
 #include <cstddef>
+#include <opencv2/calib3d.hpp>
 #include <opencv2/core/matx.hpp>
 #include <opencv2/core/types.hpp>
 #include <string>
@@ -20,10 +21,45 @@ ArucoFrontEnd::ArucoFrontEnd() {
   for (int i = 0; i <= 16; i++) {
     charucoIds.insert(i);
   }
-  arucoPosMap[charucoIds] = Vec3d(0, 0, 0);
-  arucoPosMap[{19, 20, 25, 26}] = Vec3d(0.5, 0, 0);
-  arucoPosMap[{21, 22, 27, 28}] = Vec3d(1.0, 0, 0);
-  arucoPosMap[{43, 44, 49, 50}] = Vec3d(0.5, 0, 0);
+  // Run 1
+  // for (int i : {19, 20, 25, 26}) {
+  //   arucoPosMap[i] = Vec3d(0.5, 0, 0);
+  // }
+  // for (int i : {21, 22, 27, 28}) {
+  //   arucoPosMap[i] = Vec3d(1.0, 0, 0);
+  // }
+  // for (int i : {43, 44, 49, 50}) {
+  //   arucoPosMap[i] = Vec3d(0.5, 0, 0);
+  // }
+
+  // Table at home
+  for (int i : {19, 20, 25, 26}) {
+    arucoPosMap[i] = Vec3d(0, 0, 0);
+  }
+  for (int i : {21, 22, 27, 28}) {
+    arucoPosMap[i] = Vec3d(-0.25, 0, 0);
+  }
+  for (int i : {17, 18, 23, 24}) {
+    arucoPosMap[i] = Vec3d(-0.5, 0, 0);
+  }
+  for (int i : {33, 34, 59, 60}) {
+    arucoPosMap[i] = Vec3d(-0.5, 0.25, 0);
+  }
+  for (int i : {29, 30, 35, 36}) {
+    arucoPosMap[i] = Vec3d(-0.5, 0.5, 0);
+  }
+  for (int i : {43, 44, 49, 50}) {
+    arucoPosMap[i] = Vec3d(-0.25, 0.5, 0);
+  }
+  for (int i : {37, 38, 63, 64}) {
+    arucoPosMap[i] = Vec3d(0, 0.5, 0);
+  }
+  for (int i : {33, 34, 39, 40}) {
+    arucoPosMap[i] = Vec3d(0, 0.25, 0);
+  }
+  for (int i : {41, 42, 47, 48}) {
+    arucoPosMap[i] = Vec3d(-0.25, 0.25, 0);
+  }
 }
 
 void ArucoFrontEnd::calibrateCharuco() {
@@ -36,7 +72,8 @@ void ArucoFrontEnd::calibrateCharuco() {
   std::cout << "Error: " << repError << std::endl;
 }
 
-void ArucoFrontEnd::detectAruco(Mat img) {
+void ArucoFrontEnd::detectAruco(Mat img, bool maybePrintMarkerPos,
+                                bool maybePrintEstimatedPos) {
   Mat imgCopy;
   img.copyTo(imgCopy);
 
@@ -49,19 +86,22 @@ void ArucoFrontEnd::detectAruco(Mat img) {
     bool isCBoard = isCharucoBoard(minMarkerId);
 
     if (isCBoard) {
+      lastArucoId = 0;
       detectCharucoBoardWithCalibration(imgCopy, markerIds, markerCorners);
     } else {
-      detectArucoPnp(getArucoMarkersWorldPose(minMarkerId), imgCopy, markerIds,
-                     markerCorners);
+      detectArucoPnp(imgCopy, markerIds, markerCorners, maybePrintMarkerPos,
+                     maybePrintEstimatedPos);
     }
   } else {
     imshow("Aruco", imgCopy);
   }
 }
 
+// x is red, y is green, z is blue
 void ArucoFrontEnd::detectArucoPnp(
-    const Vec3d &arucoPos, Mat img, const std::vector<int> &markerIds,
-    const std::vector<std::vector<Point2f>> &markerCorners) {
+    Mat img, const std::vector<int> &markerIds,
+    const std::vector<std::vector<Point2f>> &markerCorners,
+    bool maybePrintMarkerPos, bool maybePrintEstimatedPos) {
   cv::aruco::drawDetectedMarkers(img, markerCorners, markerIds);
   int nMarkers = markerCorners.size();
   std::vector<cv::Vec3d> arucoRvecs(nMarkers), arucoTvecs(nMarkers);
@@ -73,24 +113,32 @@ void ArucoFrontEnd::detectArucoPnp(
   }
 
   // Draw axis for each marker
+  Vec3d avgTvec = Vec3d::zeros(); //, avgEulerAngles = Vec3d::zeros();
+  int nValidMarkers = 0;
   for (unsigned int i = 0; i < markerIds.size(); i++) {
     cv::drawFrameAxes(img, cameraMatrix, distCoeffs, arucoRvecs[i],
                       arucoTvecs[i], 0.05);
+    if (arucoPosMap.count(markerIds[i])) {
+      avgTvec += getArucoMarkersWorldPose(markerIds[i], maybePrintMarkerPos) -
+                 arucoTvecs[i];
+      nValidMarkers += 1;
+    }
   }
+  avgTvec /= nValidMarkers;
+  // avgTvec += getArucoMarkersWorldPose(markerIds, maybePrintMarkerPos);
 
-  // Only use the first aruco marker
-  cv::Vec3d rvec, tvec;
+  // Only use the first aruco marker for rotation
+  cv::Vec3d rvec;
   rvec = arucoRvecs.at(0);
-  tvec = arucoTvecs.at(0);
   Vec3d oppositeDirRvec = rvec * -1;
-  Vec3d oppositeDirTvec = arucoPos + (tvec * -1);
   Mat R = Mat::zeros(Size(3, 3), CV_64FC1);
   Rodrigues(oppositeDirRvec, R);
 
-  Mat t = R * oppositeDirTvec;
+  Mat t = R * avgTvec;
   currentWorldPose = Vec3d(t.reshape(3).at<Vec3d>());
   currentWorldRot = convertRotationToEuler(R);
-  // x is red, y is green, z is blue
+  if (maybePrintEstimatedPos)
+    std::cout << "World pos: " << currentWorldPose << std::endl;
 
   std::string rString = std::to_string(currentWorldRot[0]) + " " +
                         std::to_string(currentWorldRot[1]) + " " +
@@ -105,6 +153,21 @@ void ArucoFrontEnd::detectArucoPnp(
 
   imshow("Aruco", img);
 }
+
+// void ArucoFrontEnd::detectCharucoBoardWithoutCalibration(Mat img) {
+//   Mat imgCopy;
+//   img.copyTo(imgCopy);
+//
+//   std::vector<int> markerIds;
+//   std::vector<std::vector<Point2f>> markerCorners;
+//   arucoDetector.detectMarkers(img, markerCorners, markerIds);
+//
+//   if (markerIds.size() > 0) {
+//
+//   } else {
+//     imshow("Aruco", imgCopy);
+//   }
+// }
 
 void ArucoFrontEnd::detectCharucoBoardWithCalibration(
     Mat img, const std::vector<int> &markerIds,
@@ -240,11 +303,22 @@ Vec3d ArucoFrontEnd::convertRotationToEuler(Mat &R) {
   return Vec3d(x, y, z);
 }
 
-Vec3d ArucoFrontEnd::getArucoMarkersWorldPose(int arucoId) {
-  for (auto item : arucoPosMap) {
-    if (item.first.count(arucoId) == 1) {
-      return item.second;
-    }
-  }
-  return Vec3d::zeros();
+Vec3d ArucoFrontEnd::getArucoMarkersWorldPose(int markerId,
+                                              bool maybePrintArucoPos) {
+  Vec3d worldPose = arucoPosMap[markerId];
+  if (maybePrintArucoPos)
+    std::cout << "Marker " << markerId << ": " << worldPose << std::endl;
+  return worldPose;
+}
+
+int ArucoFrontEnd::getLastArucoId() const { return lastArucoId; }
+
+Mat ArucoFrontEnd::constructRotationMat(const Vec3d &R) {
+  Mat x = (Mat_<double>(3, 3) << 1, 0, 0, 0, std::cos(R[0]), -std::sin(R[0]), 0,
+           std::sin(R[0]), std::cos(R[0]));
+  Mat y = (Mat_<double>(3, 3) << std::cos(R[1]), 0, std::sin(R[1]), 0, 1, 0,
+           -std::sin(R[1]), 0, std::cos(R[1]));
+  Mat z = (Mat_<double>(3, 3) << std::cos(R[2]), -std::sin(R[2]), 0,
+           std::sin(R[2]), std::cos(R[2]), 0, 0, 0, 1);
+  return x * y * z;
 }

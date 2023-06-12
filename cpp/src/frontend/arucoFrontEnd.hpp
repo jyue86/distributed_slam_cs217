@@ -42,12 +42,15 @@ public:
   void calibrateCharuco();
 
   // Detection functions
-  void detectAruco(Mat img);
+  void detectAruco(Mat img, bool maybePrintMarkerPos = false,
+                   bool maybePrintEstimatedPos = false);
+  void detectArucoPnp(Mat img, const std::vector<int> &markerIds,
+                      const std::vector<std::vector<Point2f>> &markerCorners,
+                      bool maybePrintMarkerPos = false,
+                      bool maybePrintEstimatedPos = false);
+  // void detectArucoWithoutCalibration(Mat img);
 
   void detectCharucoBoardWithoutCalibration(Mat img);
-  void detectArucoPnp(const Vec3d &arucoPos, Mat img,
-                      const std::vector<int> &markerIds,
-                      const std::vector<std::vector<Point2f>> &markerCorners);
   void detectCharucoBoardWithCalibration(
       Mat img, const std::vector<int> &markerIds,
       const std::vector<std::vector<Point2f>> &markerCorners);
@@ -57,6 +60,7 @@ public:
   Mat getDistCoeffs() const;
   Vec3d getWorldPose() const;
   Vec3d getWorldRot() const;
+  int getLastArucoId() const;
 
 private:
   // Calibration
@@ -94,14 +98,16 @@ private:
   // Pose data
   Vec3d currentWorldPose;
   Vec3d currentWorldRot;
+  int lastArucoId;
 
   // todo: make this a const function???
-  std::map<std::set<int>, Vec3d> arucoPosMap;
+  std::map<int, Vec3d> arucoPosMap;
   bool isCharucoBoard(int minMarkerId);
   int findArucoGroupId(int minMarkerId);
   bool isRotationMatrix(Mat &R);
   Vec3d convertRotationToEuler(Mat &R);
-  Vec3d getArucoMarkersWorldPose(int arucoId);
+  Vec3d getArucoMarkersWorldPose(int arucoId, bool maybePrintMarkerPos);
+  Mat constructRotationMat(const Vec3d &eulerAngles);
 };
 
 #endif
