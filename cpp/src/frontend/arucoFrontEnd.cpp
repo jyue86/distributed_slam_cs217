@@ -38,27 +38,23 @@ ArucoFrontEnd::ArucoFrontEnd() {
   }
   for (int i : {21, 22, 27, 28}) {
     arucoPosMap[i] = Vec3d(-0.25, 0, 0);
-  }
-  for (int i : {17, 18, 23, 24}) {
-    arucoPosMap[i] = Vec3d(-0.5, 0, 0);
-  }
-  for (int i : {33, 34, 59, 60}) {
-    arucoPosMap[i] = Vec3d(-0.5, 0.25, 0);
-  }
-  for (int i : {29, 30, 35, 36}) {
-    arucoPosMap[i] = Vec3d(-0.5, 0.5, 0);
-  }
-  for (int i : {43, 44, 49, 50}) {
-    arucoPosMap[i] = Vec3d(-0.25, 0.5, 0);
-  }
-  for (int i : {37, 38, 63, 64}) {
-    arucoPosMap[i] = Vec3d(0, 0.5, 0);
-  }
-  for (int i : {33, 34, 39, 40}) {
-    arucoPosMap[i] = Vec3d(0, 0.25, 0);
+    // arucoPosMap[i] = Vec3d(-4, 0, 0);
   }
   for (int i : {41, 42, 47, 48}) {
     arucoPosMap[i] = Vec3d(-0.25, 0.25, 0);
+    // arucoPosMap[i] = Vec3d(-8, 0, 0);
+  }
+  for (int i : {43, 44, 49, 50}) {
+    arucoPosMap[i] = Vec3d(-0.25, 0.5, 0);
+    // arucoPosMap[i] = Vec3d(-4, 8, 0);
+  }
+  for (int i : {29, 30, 35, 36}) {
+    arucoPosMap[i] = Vec3d(0, 0.5, 0);
+    // arucoPosMap[i] = Vec3d(0, 8, 0);
+  }
+  for (int i : {53, 54, 59, 60}) {
+    arucoPosMap[i] = Vec3d(0, 0.25, 0);
+    // arucoPosMap[i] = Vec3d(0, 4, 0);
   }
 }
 
@@ -74,6 +70,7 @@ void ArucoFrontEnd::calibrateCharuco() {
 
 void ArucoFrontEnd::detectAruco(Mat img, bool maybePrintMarkerPos,
                                 bool maybePrintEstimatedPos) {
+  lastArucoIds.clear();
   Mat imgCopy;
   img.copyTo(imgCopy);
 
@@ -86,7 +83,7 @@ void ArucoFrontEnd::detectAruco(Mat img, bool maybePrintMarkerPos,
     bool isCBoard = isCharucoBoard(minMarkerId);
 
     if (isCBoard) {
-      lastArucoId = 0;
+      lastArucoIds.insert(0);
       detectCharucoBoardWithCalibration(imgCopy, markerIds, markerCorners);
     } else {
       detectArucoPnp(imgCopy, markerIds, markerCorners, maybePrintMarkerPos,
@@ -119,13 +116,15 @@ void ArucoFrontEnd::detectArucoPnp(
     cv::drawFrameAxes(img, cameraMatrix, distCoeffs, arucoRvecs[i],
                       arucoTvecs[i], 0.05);
     if (arucoPosMap.count(markerIds[i])) {
+      lastArucoIds.insert(markerIds[i]);
       avgTvec += getArucoMarkersWorldPose(markerIds[i], maybePrintMarkerPos) -
                  arucoTvecs[i];
       nValidMarkers += 1;
     }
   }
   avgTvec /= nValidMarkers;
-  // avgTvec += getArucoMarkersWorldPose(markerIds, maybePrintMarkerPos);
+  // set at a constant height
+  // avgTvec[2] = 2;
 
   // Only use the first aruco marker for rotation
   cv::Vec3d rvec;
@@ -311,7 +310,7 @@ Vec3d ArucoFrontEnd::getArucoMarkersWorldPose(int markerId,
   return worldPose;
 }
 
-int ArucoFrontEnd::getLastArucoId() const { return lastArucoId; }
+std::set<int> ArucoFrontEnd::getLastArucoIds() const { return lastArucoIds; }
 
 Mat ArucoFrontEnd::constructRotationMat(const Vec3d &R) {
   Mat x = (Mat_<double>(3, 3) << 1, 0, 0, 0, std::cos(R[0]), -std::sin(R[0]), 0,

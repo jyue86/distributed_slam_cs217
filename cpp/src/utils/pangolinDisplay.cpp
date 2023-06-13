@@ -1,13 +1,53 @@
 #include "pangolinDisplay.hpp"
+#include <cmath>
+#include <gtsam/geometry/Pose3.h>
+
+void TrajectoryVisualizer::readPoseFromISAM(const Values &currentEstimate) {
+  for (int i = 1; i <= currentEstimate.size(); i++) {
+    double rx, ry, rz, tx, ty, tz;
+    rx = currentEstimate.at<Pose3>(i).rotation().roll();
+    ry = currentEstimate.at<Pose3>(i).rotation().pitch();
+    rz = currentEstimate.at<Pose3>(i).rotation().yaw();
+    tx = currentEstimate.at<Pose3>(i).translation().x();
+    ty = currentEstimate.at<Pose3>(i).translation().y();
+    tz = currentEstimate.at<Pose3>(i).translation().z();
+
+    Eigen::Quaternion<double> qx(std::cos(rx / 2.0), std::sin(rx / 2.0), 0.0,
+                                 0.0);
+    Eigen::Quaternion<double> qy(std::cos(ry / 2.0), 0.0, std::sin(ry / 2.0),
+                                 0.0);
+    Eigen::Quaternion<double> qz(std::cos(rz / 2.0), 0.0, 0.0,
+                                 std::sin(rz / 2.0));
+
+    Eigen::Quaternion<double> q = qz * qy * qx;
+
+    Isometry3d Twr(Quaterniond(q.w(), q.z(), q.y(), q.x()));
+    Twr.pretranslate(Eigen::Vector3d(tx, ty, tz));
+
+    // check if reasonable
+    if (i != 1) {
+      auto prevPose = poses[i - 1];
+      double pX, pY, pZ;
+      pX = prevPose.translation().x();
+      pY = prevPose.translation().y();
+      pZ = prevPose.translation().z();
+
+      if (calculateDistance(tx, ty, tz, pX, pY, pZ) > 0.75)
+        continue;
+    }
+
+    poses.push_back(Twr);
+  }
+}
 
 void TrajectoryVisualizer::addPose(const cv::Vec3d &R, const cv::Vec3d &t) {
   double x = R[0], y = R[1], z = R[2];
-  Quaternion<double> qx(std::cos(x / 2.0), std::sin(x / 2.0), 0.0, 0.0);
-  Quaternion<double> qy(std::cos(y / 2.0), 0.0, std::sin(y / 2.0), 0.0);
-  Quaternion<double> qz(std::cos(z / 2.0), 0.0, 0.0, std::sin(z / 2.0));
+  Eigen::Quaternion<double> qx(std::cos(x / 2.0), std::sin(x / 2.0), 0.0, 0.0);
+  Eigen::Quaternion<double> qy(std::cos(y / 2.0), 0.0, std::sin(y / 2.0), 0.0);
+  Eigen::Quaternion<double> qz(std::cos(z / 2.0), 0.0, 0.0, std::sin(z / 2.0));
 
   // Combine the individual quaternions to get the final quaternion
-  Quaternion<double> q = qz * qy * qx;
+  Eigen::Quaternion<double> q = qz * qy * qx;
 
   Isometry3d Twr(Quaterniond(q.w(), q.z(), q.y(), q.x()));
   Twr.pretranslate(Eigen::Vector3d(t[0], t[1], t[2]));
@@ -53,6 +93,7 @@ void TrajectoryVisualizer::drawTrajectory() {
       glVertex3d(Zw[0], Zw[1], Zw[2]);
       glEnd();
     }
+
     // draw a connection
     for (size_t i = 0; i < poses.size() - 1; i++) {
       glColor3f(0.0, 0.0, 0.0);
@@ -65,4 +106,11 @@ void TrajectoryVisualizer::drawTrajectory() {
     pangolin::FinishFrame();
     usleep(5000); // sleep 5 ms
   }
+}
+
+double TrajectoryVisualizer::calculateDistance(double x1, double y1, double z1,
+                                               double x2, double y2,
+                                               double z2) {
+  return std::sqrt(std::pow(x2 - x2, 2) + std::pow(y2 - y1, 2) +
+                   std::pow(z2 - z1, 2));
 }

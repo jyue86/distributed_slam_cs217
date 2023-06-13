@@ -54,14 +54,15 @@ using namespace gtsam;
 class PoseGraph {
 public:
   PoseGraph();
-  void addPose(int arucoId, const Vec3d &R, const Vec3d &t);
+  void addPose(std::set<int> arucoids, const Vec3d &R, const Vec3d &t);
   void lmOptimize();
   void isamOptimize();
   Values getCurrentEstimate();
 
 private:
+  bool maybeLoopClose;
   unsigned int graphId;
-  unsigned int lastArucoId;
+  std::set<int> lastArucoIds;
   Vec3d lastPose;
   Vec3d lastRot;
 

@@ -60,7 +60,7 @@ public:
   Mat getDistCoeffs() const;
   Vec3d getWorldPose() const;
   Vec3d getWorldRot() const;
-  int getLastArucoId() const;
+  std::set<int> getLastArucoIds() const;
 
 private:
   // Calibration
@@ -98,7 +98,7 @@ private:
   // Pose data
   Vec3d currentWorldPose;
   Vec3d currentWorldRot;
-  int lastArucoId;
+  std::set<int> lastArucoIds;
 
   // todo: make this a const function???
   std::map<int, Vec3d> arucoPosMap;

@@ -112,7 +112,7 @@ void runSlamOnVideo(const std::string &video) {
       }
 
       if (!maybeSkip)
-        poseGraph.addPose(arucoFrontEnd.getLastArucoId(), R, t);
+        poseGraph.addPose(arucoFrontEnd.getLastArucoIds(), R, t);
     }
 
     quitKey = waitKey(10);
@@ -121,7 +121,6 @@ void runSlamOnVideo(const std::string &video) {
   }
   destroyAllWindows();
 
-  poseGraph.lmOptimize();
   Values currentEstimate = poseGraph.getCurrentEstimate();
   tVisualizer.readPoseFromISAM(currentEstimate);
   tVisualizer.drawTrajectory();

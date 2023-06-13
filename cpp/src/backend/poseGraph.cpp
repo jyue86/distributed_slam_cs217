@@ -3,9 +3,13 @@
 #include <limits>
 #include <opencv2/core/matx.hpp>
 
-PoseGraph::PoseGraph() { graphId = 1; }
+PoseGraph::PoseGraph() {
+  graphId = 1;
+  maybeLoopClose = false;
+}
 
-void PoseGraph::addPose(int arucoId, const Vec3d &R, const Vec3d &t) {
+void PoseGraph::addPose(std::set<int> arucoIds, const Vec3d &R,
+                        const Vec3d &t) {
   if (graphId == 1) {
     Pose3 priorMean = Pose3::Create(Rot3::identity(), Point3(0, 0, 0));
     // noiseModel::Diagonal::shared_ptr priorNoise =
@@ -17,9 +21,9 @@ void PoseGraph::addPose(int arucoId, const Vec3d &R, const Vec3d &t) {
     graph.add(PriorFactor<Pose3>(1, Pose3(), priorNoise));
     lastRot = R;
     lastPose = t;
-    initialPosesEstimate.insert(
-        graphId,
-        Pose3::Create(Rot3(constructRotationMat(R)), Point3(t[0], t[1], t[2])));
+    initialPosesEstimate.insert(graphId,
+                                Pose3::Create(Rot3::RzRyRx(R[2], R[1], R[0]),
+                                              Point3(t[0], t[1], t[2])));
     std::cout << "Prior Added graph id " << graphId << std::endl;
     currentPosesEstimate = initialPosesEstimate;
     graphId += 1;
@@ -30,12 +34,16 @@ void PoseGraph::addPose(int arucoId, const Vec3d &R, const Vec3d &t) {
             << std::endl;
   double dist = calculateDistance(t, lastPose);
   if (dist < 1e-2 || dist > 0.5) {
+    std::string message = dist < 1e-2 ? ", too small" : ", too big";
+    std::cout << "Filtering out this pose from the last one" << message
+              << std::endl;
     return;
   }
   Vec3d rDiff = R - lastRot;
   Vec3d tDiff = t - lastPose;
 
-  Rot3 rotation = Rot3(constructRotationMat(rDiff));
+  // Rot3 rotation = Rot3(constructRotationMat(rDiff));
+  Rot3 rotation = Rot3::RzRyRx(rDiff[2], rDiff[1], rDiff[0]);
   Point3 translation(tDiff[0], tDiff[1], tDiff[2]);
   // Pose2 odometry(worldTranslation[0], worldTranslation[1], theta);
   Pose3 odometry = Pose3::Create(rotation, translation);
@@ -50,27 +58,36 @@ void PoseGraph::addPose(int arucoId, const Vec3d &R, const Vec3d &t) {
       Pose3::Create(Rot3(constructRotationMat(R)), Point3(t[0], t[1], t[2])));
 
   // Check for loop closure
-  if (arucoId != lastArucoId && poseDb.count(arucoId)) {
-    std::cout << "Loop closure!!!" << std::endl;
-    double minDistance = std::numeric_limits<double>::max();
-    int correspondingGraphId;
-    for (auto item : poseDb[arucoId]) {
-      double dist = calculateDistance(t, item.second.second);
-      if (dist < minDistance) {
-        minDistance = dist;
-        correspondingGraphId = item.first;
+  for (int id : arucoIds) {
+    if (!lastArucoIds.count(id) && poseDb.count(id)) {
+      double minDistance = std::numeric_limits<double>::max();
+      int correspondingGraphId;
+      for (auto item : poseDb[id]) {
+        double dist = calculateDistance(t, item.second.second);
+        if (dist < minDistance) {
+          minDistance = dist;
+          correspondingGraphId = item.first;
+        }
       }
+
+      if (graphId - correspondingGraphId < 50)
+        continue;
+      std::cout << "Loop closure!!!" << std::endl;
+      rDiff = R - poseDb[id][correspondingGraphId].first;
+      tDiff = t - poseDb[id][correspondingGraphId].second;
+      rotation = Rot3(constructRotationMat(rDiff));
+      translation = Point3{tDiff[0], tDiff[1], tDiff[2]};
+      Pose3 loopClosureOdometry = Pose3::Create(rotation, translation);
+      std::cout << "Going to close loop between " << graphId << " and "
+                << correspondingGraphId << ", aruco id is " << id << ", and"
+                << std::endl;
+      graph.add(BetweenFactor<Pose3>(graphId, correspondingGraphId,
+                                     loopClosureOdometry, odometryNoise));
+      break;
     }
 
-    rDiff = R - poseDb[arucoId][correspondingGraphId].first;
-    tDiff = t - poseDb[arucoId][correspondingGraphId].second;
-    rotation = Rot3(constructRotationMat(rDiff));
-    translation = Point3{tDiff[0], tDiff[1], tDiff[2]};
-    Pose3 loopClosureOdometry = Pose3::Create(rotation, translation);
-    graph.add(BetweenFactor<Pose3>(graphId, correspondingGraphId,
-                                   loopClosureOdometry, odometryNoise));
+    poseDb[id][graphId] = std::pair<Vec3d, Vec3d>{R, t};
   }
-  poseDb[arucoId][graphId] = std::pair<Vec3d, Vec3d>{R, t};
 
   // Optimize w/ isam
   isamOptimize();
@@ -82,12 +99,22 @@ void PoseGraph::addPose(int arucoId, const Vec3d &R, const Vec3d &t) {
          tz = opsTranslation.z(), rx = opsRotation.x(), ry = opsRotation.y(),
          rz = opsRotation.z();
 
-  lastArucoId = arucoId;
-  // lastRot = Vec3d(tx, ty, tz);
-  // lastPose = Vec3d(rx, ry, rz);
+  lastArucoIds = arucoIds;
+  lastRot = Vec3d(tx, ty, tz);
+  lastPose = Vec3d(rx, ry, rz);
   lastRot = R;
   lastPose = t;
   graphId += 1;
+}
+
+void PoseGraph::isamOptimize() {
+  // graph.print("Graph");
+  // isam.print("ISAM");
+  // std::cout << "---------" << std::endl;
+  isam.update(graph, initialPosesEstimate);
+  currentPosesEstimate = isam.calculateEstimate();
+  graph.resize(0);
+  initialPosesEstimate.clear();
 }
 
 void PoseGraph::lmOptimize() {
@@ -97,21 +124,10 @@ void PoseGraph::lmOptimize() {
   // TODO: update graph with new poses from result
 }
 
-void PoseGraph::isamOptimize() {
-  graph.print("Graph");
-  // isam.print("ISAM");
-  std::cout << "---------" << std::endl;
-  isam.update(graph, initialPosesEstimate);
-  currentPosesEstimate = isam.calculateEstimate();
-  graph.resize(0);
-  initialPosesEstimate.clear();
-}
-
 Values PoseGraph::getCurrentEstimate() {
   Values currentEstimate = isam.calculateEstimate();
   currentEstimate.print("Current Estimate:");
   return currentEstimate;
-  // return initialPosesEstimate;
 }
 
 Eigen::Matrix3d PoseGraph::constructRotationMat(const Vec3d &R) {
